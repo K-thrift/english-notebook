@@ -5,7 +5,7 @@ import streamlit.components.v1 as components
 from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(
-    page_title="My Smart English Notebook",
+    page_title="Smart English Notebook",
     page_icon="📖",
     layout="wide",
     initial_sidebar_state="collapsed",
