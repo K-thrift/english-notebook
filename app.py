@@ -1,196 +1,437 @@
+import json
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(
-    page_title="My English Notebook",
+    page_title="My Smart English Notebook",
     page_icon="📖",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="collapsed",
 )
 
-# CSS giả lập trang vở học tập
+# Nhúng CSS màu sắc pastel, hiệu ứng thẻ sổ tay phong cách hiện đại
 st.markdown(
     """
-    <style>
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    
+    /* Khung trang sổ chính */
     .notebook-sheet {
-        background-color: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-left: 6px solid #e53e3e;
-        border-radius: 8px;
-        padding: 24px 28px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
+        background: #ffffff;
+        border-radius: 18px;
+        padding: 28px 32px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.04);
+        border: 1px solid #f1f3f5;
+        margin-bottom: 25px;
     }
-    .page-header {
-        font-size: 22px;
+    
+    .article-title {
+        font-size: 24px;
         font-weight: 700;
-        color: #1a202c;
-        margin-bottom: 4px;
-    }
-    .source-link {
-        font-size: 13px;
-        color: #718096;
-        margin-bottom: 16px;
-    }
-    .section-title {
-        font-size: 15px;
-        font-weight: 600;
-        color: #2b6cb0;
-        margin-top: 14px;
+        color: #1e293b;
         margin-bottom: 6px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
     }
-    .content-box {
-        background: #f7fafc;
-        border: 1px solid #edf2f7;
+    
+    .article-url {
+        font-size: 13px;
+        color: #64748b;
+        margin-bottom: 24px;
+    }
+    
+    /* Thẻ từ vựng (Card) */
+    .vocab-card {
+        background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+        border: 1px solid #bbf7d0;
+        border-radius: 14px;
+        padding: 16px 20px;
+        margin-bottom: 14px;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);
+    }
+    
+    .vocab-word {
+        font-size: 18px;
+        font-weight: 700;
+        color: #166534;
+    }
+    
+    .vocab-ipa {
+        font-size: 14px;
+        color: #15803d;
+        background: #ffffffaa;
+        padding: 2px 8px;
         border-radius: 6px;
-        padding: 12px;
-        font-family: inherit;
-        white-space: pre-wrap;
-        line-height: 1.6;
+        font-family: monospace;
+        margin-left: 8px;
     }
-    </style>
+    
+    .vocab-pos {
+        font-size: 12px;
+        color: #475569;
+        font-style: italic;
+        background: #f1f5f9;
+        padding: 2px 6px;
+        border-radius: 4px;
+        margin-left: 6px;
+    }
+    
+    .vocab-def {
+        font-size: 14px;
+        color: #1e293b;
+        margin-top: 8px;
+        font-weight: 500;
+    }
+    
+    .vocab-example {
+        font-size: 13px;
+        color: #475569;
+        background: #ffffff88;
+        padding: 8px 12px;
+        border-left: 3px solid #22c55e;
+        border-radius: 4px;
+        margin-top: 8px;
+        font-style: italic;
+    }
+    
+    /* Khối câu trích mẫu từ bài báo */
+    .passage-card {
+        background: linear-gradient(135deg, #fefce8 0%, #fef08a 100%);
+        border: 1px solid #fef08a;
+        border-radius: 14px;
+        padding: 20px;
+        color: #854d0e;
+        line-height: 1.7;
+        font-size: 15px;
+        margin-top: 15px;
+    }
+
+    .edit-box {
+        background: #f8fafc;
+        border: 1px dashed #cbd5e1;
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 12px;
+    }
+</style>
 """,
     unsafe_allow_html=True,
 )
 
-# Kết nối Google Sheets
+# Kết nối cơ sở dữ liệu Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 
 def load_data():
-  data = conn.read(ttl=0)
-  if data.empty or "page_id" not in data.columns:
-    data = pd.DataFrame(
-        columns=[
-            "page_id",
-            "title",
-            "source_url",
-            "vocab_phonetics",
-            "examples",
-            "sample_passage",
-        ]
-    )
+  try:
+    data = conn.read(ttl=0)
+  except Exception:
+    data = pd.DataFrame()
+
+  required_cols = ["page_id", "title", "source_url", "vocab_list", "passage"]
+  if data.empty or not set(required_cols).issubset(data.columns):
+    data = pd.DataFrame(columns=required_cols)
   else:
-    data["page_id"] = pd.to_numeric(
-        data["page_id"], errors="coerce"
-    ).fillna(1)
+    data["page_id"] = pd.to_numeric(data["page_id"], errors="coerce").fillna(1)
     data = data.sort_values(by="page_id").reset_index(drop=True)
   return data
 
 
 df = load_data()
 
-# Quản lý số trang hiện tại
-max_page = int(df["page_id"].max()) if not df.empty else 1
-if "curr_page" not in st.session_state:
-  st.session_state.curr_page = 1
+# Nút phát âm trực tiếp bằng Web Speech API
+def render_audio_button(text, button_id):
+  escaped = text.replace('"', '\\"').replace("\n", " ")
+  html_code = f"""
+    <button onclick="speakText_{button_id}()" style="
+        background-color: #3b82f6; color: white; border: none; 
+        border-radius: 50%; width: 28px; height: 28px; cursor: pointer; 
+        font-size: 13px; line-height: 28px; text-align: center; display: inline-block;">
+        🔊
+    </button>
+    <script>
+    function speakText_{button_id}() {{
+        window.speechSynthesis.cancel();
+        var msg = new SpeechSynthesisUtterance("{escaped}");
+        msg.lang = 'en-US';
+        msg.rate = 0.9;
+        window.speechSynthesis.speak(msg);
+    }}
+    </script>
+    """
+  components.html(html_code, height=36, width=45)
 
-# Thanh điều hướng chuyển trang
-col1, col2, col3 = st.columns([1, 2, 1])
-with col1:
-  if st.button("◀ Trang trước") and st.session_state.curr_page > 1:
-    st.session_state.curr_page -= 1
+
+# Quản lý số trang
+max_pages = int(df["page_id"].max()) if not df.empty else 1
+if "page_idx" not in st.session_state:
+  st.session_state.page_idx = 1
+
+# Thanh chuyển bài dạng lật sổ
+header_col1, header_col2, header_col3 = st.columns([1, 2, 1])
+with header_col1:
+  if st.button("◀ Trang trước") and st.session_state.page_idx > 1:
+    st.session_state.page_idx -= 1
     st.rerun()
 
-with col2:
+with header_col2:
   st.markdown(
-      f"<div style='text-align:center; font-weight:600; font-size:16px;'>Trang"
-      f" {st.session_state.curr_page} / {max(max_page, st.session_state.curr_page)}</div>",
+      f"<div style='text-align: center; font-size: 18px; font-weight: 700;"
+      f" color: #3b82f6;'>Trang {st.session_state.page_idx} /"
+      f" {max(max_pages, st.session_state.page_idx)}</div>",
       unsafe_allow_html=True,
   )
 
-with col3:
+with header_col3:
   if st.button("Trang sau ▶"):
-    st.session_state.curr_page += 1
+    st.session_state.page_idx += 1
     st.rerun()
 
-st.divider()
+st.write("")
 
-# Tìm dữ liệu trang hiện tại
-current_row = df[df["page_id"] == st.session_state.curr_page]
+# Lấy dữ liệu bài hiện tại
+current_row = df[df["page_id"] == st.session_state.page_idx]
 row = current_row.iloc[0] if not current_row.empty else None
 
-tab_read, tab_write = st.tabs(
-    ["📖 Đọc bài học", "✏️ Soạn / Sửa bài trang này"]
-)
+tab_learn, tab_input = st.tabs(["📖 Học bài", "✏️ Soạn / Sửa bài trang này"])
 
-with tab_read:
+# ================= TAB 1: GIAO DIỆN HỌC BÀI =================
+with tab_learn:
   if row is not None and pd.notna(row.get("title")):
     st.markdown(
         f"""
         <div class="notebook-sheet">
-            <div class="page-header">{row.get('title', '')}</div>
-            <div class="source-link">Nguồn trích: <a href="{row.get('source_url', '#')}" target="_blank">{row.get('source_url', 'Không có link')}</a></div>
-            
-            <div class="section-title">1 & 2. Từ vựng & Phát âm (IPA)</div>
-            <div class="content-box">{row.get('vocab_phonetics', '')}</div>
-            
-            <div class="section-title">3. Câu ví dụ</div>
-            <div class="content-box">{row.get('examples', '')}</div>
-            
-            <div class="section-title">4. Đoạn mẫu từ bài báo</div>
-            <div class="content-box" style="background:#fffaf0; border-color:#feebc8;">{row.get('sample_passage', '')}</div>
+            <div class="article-title">{row.get('title', '')}</div>
+            <div class="article-url">🔗 Nguồn bài: <a href="{row.get('source_url', '#')}" target="_blank">{row.get('source_url', 'Không có')}</a></div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    col_left, col_right = st.columns([3, 2])
+
+    with col_left:
+      st.markdown(
+          "<h4 style='color: #0f172a; margin-bottom: 15px;'>🌱 Danh mục Từ vựng"
+          " đã nhặt</h4>",
+          unsafe_allow_html=True,
+      )
+
+      vocab_items = []
+      try:
+        raw_vocab = row.get("vocab_list", "[]")
+        vocab_items = (
+            json.loads(raw_vocab)
+            if isinstance(raw_vocab, str) and raw_vocab.startswith("[")
+            else []
+        )
+      except Exception:
+        vocab_items = []
+
+      if vocab_items:
+        for idx, item in enumerate(vocab_items):
+          word = item.get("word", "")
+          ipa = item.get("ipa", "")
+          pos = item.get("pos", "")
+          definition = item.get("def", "")
+          example = item.get("example", "")
+
+          c1, c2 = st.columns([11, 1])
+          with c1:
+            st.markdown(
+                f"""
+                        <div class="vocab-card">
+                            <span class="vocab-word">{word}</span>
+                            <span class="vocab-ipa">{ipa}</span>
+                            <span class="vocab-pos">{pos}</span>
+                            <div class="vocab-def">👉 {definition}</div>
+                            {f'<div class="vocab-example">“ {example} ”</div>' if example else ''}
+                        </div>
+                        """,
+                unsafe_allow_html=True,
+            )
+          with c2:
+            render_audio_button(word, f"w_{idx}")
+      else:
+        st.info("Chưa có từ vựng nào được thêm cho bài báo này.")
+
+    with col_right:
+      st.markdown(
+          "<h4 style='color: #0f172a; margin-bottom: 15px;'>📑 Đoạn văn mẫu"
+          " trích bài báo</h4>",
+          unsafe_allow_html=True,
+      )
+      passage = row.get("passage", "")
+      if passage:
+        st.markdown(
+            f'<div class="passage-card">{passage}</div>',
+            unsafe_allow_html=True,
+        )
+        st.write("")
+        st.caption("Nghe đọc cả đoạn mẫu:")
+        render_audio_button(passage, "passage_btn")
+      else:
+        st.info("Chưa có đoạn văn trích dẫn mẫu.")
   else:
     st.info(
-        f"Trang {st.session_state.curr_page} hiện đang trống. Hãy qua tab"
-        " 'Soạn / Sửa bài' để nhập bài học."
+        f"Trang {st.session_state.page_idx} chưa có bài học. Hãy chuyển sang"
+        " tab 'Soạn / Sửa bài trang này' để thêm bài mới!"
     )
 
-with tab_write:
-  with st.form(key=f"edit_form_{st.session_state.curr_page}"):
-    title_in = st.text_input(
-        "Tiêu đề bài báo", value=row["title"] if row is not None else ""
-    )
-    url_in = st.text_input(
-        "Link nguồn bài báo",
-        value=row["source_url"] if row is not None else "",
-    )
-    vocab_in = st.text_area(
-        "1 & 2. Từ vựng và phiên âm",
-        value=row["vocab_phonetics"] if row is not None else "",
-        height=130,
-        placeholder="- resilient /rɪˈzɪl.jənt/ (adj): kiên cường, phục hồi nhanh\n- mitigate /ˈmɪt.ɪ.ɡeɪt/ (v): giảm nhẹ",
-    )
-    examples_in = st.text_area(
-        "3. Các câu ví dụ rút ra",
-        value=row["examples"] if row is not None else "",
-        height=130,
-        placeholder="1. The local community showed resilient spirit.\n2. Steps have been taken to mitigate the risks.",
-    )
-    passage_in = st.text_area(
-        "4. Đoạn văn mẫu nguyên bản",
-        value=row["sample_passage"] if row is not None else "",
-        height=150,
-        placeholder="Dán 2-3 câu hoàn chỉnh chứa ngữ cảnh của bài báo vào đây...",
+# ================= TAB 2: SOẠN BÀI / THÊM Ô TỪ VỰNG =================
+with tab_input:
+  # Nạp dữ liệu cũ vào state soạn thảo
+  default_title = row["title"] if row is not None else ""
+  default_url = row["source_url"] if row is not None else ""
+  default_passage = row["passage"] if row is not None else ""
+
+  existing_vocab = []
+  if row is not None:
+    try:
+      raw = row.get("vocab_list", "[]")
+      existing_vocab = (
+          json.loads(raw) if isinstance(raw, str) and raw.startswith("[") else []
+      )
+    except Exception:
+      existing_vocab = []
+
+  state_key = f"vocab_cards_{st.session_state.page_idx}"
+  if state_key not in st.session_state:
+    st.session_state[state_key] = (
+        existing_vocab
+        if existing_vocab
+        else [{"word": "", "ipa": "", "pos": "noun", "def": "", "example": ""}]
     )
 
-    btn_save = st.form_submit_button("💾 Lưu trang này vào sổ")
+  st.markdown("### 📰 1. Thông tin bài báo")
+  in_title = st.text_input("Tiêu đề bài báo", value=default_title)
+  in_url = st.text_input("Đường link bài báo", value=default_url)
 
-    if btn_save:
-      new_data = {
-          "page_id": int(st.session_state.curr_page),
-          "title": str(title_in),
-          "source_url": str(url_in),
-          "vocab_phonetics": str(vocab_in),
-          "examples": str(examples_in),
-          "sample_passage": str(passage_in),
-      }
+  st.markdown("---")
+  st.markdown("### 🗂️ 2. Thẻ từ vựng (Nhập từng ô phân loại)")
 
-      if row is not None:
-        idx = df[df["page_id"] == st.session_state.curr_page].index[0]
-        for col, val in new_data.items():
-          df.at[idx, col] = val
-      else:
-        df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
+  # Hiển thị từng khối thẻ từ vựng với các ô riêng biệt
+  indices_to_delete = []
+  for i, card in enumerate(st.session_state[state_key]):
+    st.markdown(
+        f"<div class='edit-box'><b>Thẻ từ #{i+1}</b></div>",
+        unsafe_allow_html=True,
+    )
+    col_w, col_ipa, col_pos, col_del = st.columns([3, 2, 2, 1])
 
-      # Cập nhật ngược lại Google Sheets
-      conn.update(data=df)
-      st.success("Đã lưu trang thành công!")
-      st.rerun()
+    with col_w:
+      card["word"] = st.text_input(
+          f"Từ vựng #{i+1}", value=card.get("word", ""), key=f"word_{i}"
+      )
+    with col_ipa:
+      card["ipa"] = st.text_input(
+          f"Phiên âm IPA #{i+1}",
+          value=card.get("ipa", ""),
+          placeholder="/.../",
+          key=f"ipa_{i}",
+      )
+    with col_pos:
+      card["pos"] = st.selectbox(
+          f"Loại từ #{i+1}",
+          options=[
+              "noun",
+              "verb",
+              "adj",
+              "adv",
+              "idiom",
+              "phrasal verb",
+              "other",
+          ],
+          index=[
+              "noun",
+              "verb",
+              "adj",
+              "adv",
+              "idiom",
+              "phrasal verb",
+              "other",
+          ].index(card.get("pos", "noun"))
+          if card.get("pos")
+          in [
+              "noun",
+              "verb",
+              "adj",
+              "adv",
+              "idiom",
+              "phrasal verb",
+              "other",
+          ]
+          else 0,
+          key=f"pos_{i}",
+      )
+    with col_del:
+      st.write("")
+      st.write("")
+      if st.button("🗑️", key=f"del_{i}", help="Xóa từ này"):
+        indices_to_delete.append(i)
+
+    col_def, col_ex = st.columns([3, 4])
+    with col_def:
+      card["def"] = st.text_input(
+          f"Định nghĩa / Nghĩa #{i+1}",
+          value=card.get("def", ""),
+          key=f"def_{i}",
+      )
+    with col_ex:
+      card["example"] = st.text_input(
+          f"Câu ví dụ #{i+1}",
+          value=card.get("example", ""),
+          placeholder="Ví dụ trích từ bài...",
+          key=f"ex_{i}",
+      )
+
+  if indices_to_delete:
+    for idx in sorted(indices_to_delete, reverse=True):
+      st.session_state[state_key].pop(idx)
+    st.rerun()
+
+  if st.button("➕ Thêm ô từ vựng mới"):
+    st.session_state[state_key].append(
+        {"word": "", "ipa": "", "pos": "noun", "def": "", "example": ""}
+    )
+    st.rerun()
+
+  st.markdown("---")
+  st.markdown("### 📑 3. Đoạn văn mẫu nguyên bản")
+  in_passage = st.text_area(
+    "Đoạn văn trích dẫn từ bài báo",
+    value=default_passage,
+    height=130,
+    placeholder="Dán đoạn văn tâm đắc chứa ngữ cảnh bài báo vào đây...",
+)
+
+  if st.button("💾 Lưu toàn bộ trang này", type="primary"):
+    # Lọc bỏ những ô trống chưa nhập từ
+    filtered_vocab = [
+        item
+        for item in st.session_state[state_key]
+        if item.get("word", "").strip()
+    ]
+
+    new_row = {
+        "page_id": int(st.session_state.page_idx),
+        "title": str(in_title),
+        "source_url": str(in_url),
+        "vocab_list": json.dumps(filtered_vocab, ensure_ascii=False),
+        "passage": str(in_passage),
+    }
+
+    if row is not None:
+      idx_to_update = df[df["page_id"] == st.session_state.page_idx].index[0]
+      for c, v in new_row.items():
+        df.at[idx_to_update, c] = v
+    else:
+      df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+
+    conn.update(data=df)
+    st.success(f"Đã lưu trang {st.session_state.page_idx} vào sổ thành công!")
+    st.rerun()
