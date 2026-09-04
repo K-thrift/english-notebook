@@ -125,13 +125,15 @@ st.markdown(
 # Kết nối cơ sở dữ liệu Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# Lấy chính xác link spreadsheet được cấu hình riêng trong Secrets của app này
+target_sheet = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
 def load_data():
-  try:
-    data = conn.read(ttl=0)
-  except Exception:
-    data = pd.DataFrame()
-
+    try:
+        # Ép đọc đúng link bảng tính của app hiện tại và không lưu cache (ttl=0)
+        data = conn.read(spreadsheet=target_sheet, ttl=0)
+    except Exception as e:
+        data = pd.DataFrame()
   required_cols = ["page_id", "title", "source_url", "vocab_list", "passage"]
   if data.empty or not set(required_cols).issubset(data.columns):
     data = pd.DataFrame(columns=required_cols)
@@ -432,6 +434,6 @@ with tab_input:
     else:
       df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 
-    conn.update(data=df)
+    conn.update(spreadsheet=target_sheet, data=df)
     st.success(f"Đã lưu trang {st.session_state.page_idx} vào sổ thành công!")
     st.rerun()
