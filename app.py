@@ -11,7 +11,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# Nhúng CSS màu sắc pastel, hiệu ứng thẻ sổ tay phong cách hiện đại
+# Giao diện thẻ màu phong cách sổ tay
 st.markdown(
     """
 <style>
@@ -21,7 +21,6 @@ st.markdown(
         font-family: 'Plus Jakarta Sans', sans-serif;
     }
     
-    /* Khung trang sổ chính */
     .notebook-sheet {
         background: #ffffff;
         border-radius: 18px;
@@ -44,7 +43,6 @@ st.markdown(
         margin-bottom: 24px;
     }
     
-    /* Thẻ từ vựng (Card) */
     .vocab-card {
         background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
         border: 1px solid #bbf7d0;
@@ -98,7 +96,6 @@ st.markdown(
         font-style: italic;
     }
     
-    /* Khối câu trích mẫu từ bài báo */
     .passage-card {
         background: linear-gradient(135deg, #fefce8 0%, #fef08a 100%);
         border: 1px solid #fef08a;
@@ -122,30 +119,29 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Kết nối cơ sở dữ liệu Google Sheets
+# Kết nối Google Sheets độc lập theo từng Secret của App
 conn = st.connection("gsheets", type=GSheetsConnection)
-
-# Lấy chính xác link spreadsheet được cấu hình riêng trong Secrets của app này
 target_sheet = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
+
 def load_data():
-    try:
-        # Ép đọc đúng link bảng tính của app hiện tại và không lưu cache (ttl=0)
-        data = conn.read(spreadsheet=target_sheet, ttl=0)
-    except Exception as e:
-        data = pd.DataFrame()
   required_cols = ["page_id", "title", "source_url", "vocab_list", "passage"]
-  if data.empty or not set(required_cols).issubset(data.columns):
+  try:
+    data = conn.read(spreadsheet=target_sheet, ttl=0)
+    if data is None or data.empty or not set(required_cols).issubset(data.columns):
+      data = pd.DataFrame(columns=required_cols)
+    else:
+      data["page_id"] = pd.to_numeric(data["page_id"], errors="coerce").fillna(1)
+      data = data.sort_values(by="page_id").reset_index(drop=True)
+  except Exception:
     data = pd.DataFrame(columns=required_cols)
-  else:
-    data["page_id"] = pd.to_numeric(data["page_id"], errors="coerce").fillna(1)
-    data = data.sort_values(by="page_id").reset_index(drop=True)
   return data
 
 
 df = load_data()
 
-# Nút phát âm trực tiếp bằng Web Speech API
+
+# Nút phát âm trực tiếp bằng giọng đọc trình duyệt
 def render_audio_button(text, button_id):
   escaped = text.replace('"', '\\"').replace("\n", " ")
   html_code = f"""
@@ -173,7 +169,7 @@ max_pages = int(df["page_id"].max()) if not df.empty else 1
 if "page_idx" not in st.session_state:
   st.session_state.page_idx = 1
 
-# Thanh chuyển bài dạng lật sổ
+# Thanh chuyển bài lật trang
 header_col1, header_col2, header_col3 = st.columns([1, 2, 1])
 with header_col1:
   if st.button("◀ Trang trước") and st.session_state.page_idx > 1:
@@ -208,7 +204,7 @@ with tab_learn:
         f"""
         <div class="notebook-sheet">
             <div class="article-title">{row.get('title', '')}</div>
-            <div class="article-url">🔗 Nguồn bài: <a href="{row.get('source_url', '#')}" target="_blank">{row.get('source_url', 'Không có')}</a></div>
+            <div class="article-url">🔗 Nguồn bài: <a href="{row.get('source_url', '#')}" target="_blank">{row.get('source_url', 'Không có link')}</a></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -284,9 +280,8 @@ with tab_learn:
         " tab 'Soạn / Sửa bài trang này' để thêm bài mới!"
     )
 
-# ================= TAB 2: SOẠN BÀI / THÊM Ô TỪ VỰNG =================
+# ================= TAB 2: SOẠN BÀI =================
 with tab_input:
-  # Nạp dữ liệu cũ vào state soạn thảo
   default_title = row["title"] if row is not None else ""
   default_url = row["source_url"] if row is not None else ""
   default_passage = row["passage"] if row is not None else ""
@@ -316,7 +311,6 @@ with tab_input:
   st.markdown("---")
   st.markdown("### 🗂️ 2. Thẻ từ vựng (Nhập từng ô phân loại)")
 
-  # Hiển thị từng khối thẻ từ vựng với các ô riêng biệt
   indices_to_delete = []
   for i, card in enumerate(st.session_state[state_key]):
     st.markdown(
@@ -405,14 +399,13 @@ with tab_input:
   st.markdown("---")
   st.markdown("### 📑 3. Đoạn văn mẫu nguyên bản")
   in_passage = st.text_area(
-    "Đoạn văn trích dẫn từ bài báo",
-    value=default_passage,
-    height=130,
-    placeholder="Dán đoạn văn tâm đắc chứa ngữ cảnh bài báo vào đây...",
-)
+      "Đoạn văn trích dẫn từ bài báo",
+      value=default_passage,
+      height=130,
+      placeholder="Dán đoạn văn tâm đắc chứa ngữ cảnh bài báo vào đây...",
+  )
 
   if st.button("💾 Lưu toàn bộ trang này", type="primary"):
-    # Lọc bỏ những ô trống chưa nhập từ
     filtered_vocab = [
         item
         for item in st.session_state[state_key]
