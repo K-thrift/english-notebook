@@ -8,10 +8,10 @@ st.set_page_config(
     page_title="Smart English Notebook",
     page_icon="📖",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
-# Giao diện thẻ màu phong cách sổ tay
+# Giao diện pastel dạng thẻ sổ tay
 st.markdown(
     """
 <style>
@@ -119,7 +119,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Kết nối Google Sheets độc lập theo từng Secret của App
+# Kết nối cơ sở dữ liệu Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 target_sheet = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
@@ -141,9 +141,19 @@ def load_data():
 df = load_data()
 
 
-# Nút phát âm trực tiếp bằng giọng đọc trình duyệt
+# Nút phát âm (đã fix triệt để lỗi dữ liệu trống / NaN)
 def render_audio_button(text, button_id):
-  escaped = text.replace('"', '\\"').replace("\n", " ")
+  if not text or pd.isna(text):
+    return
+  escaped = (
+      str(text)
+      .replace('"', '\\"')
+      .replace("'", "\\'")
+      .replace("\n", " ")
+      .strip()
+  )
+  if not escaped:
+    return
   html_code = f"""
     <button onclick="speakText_{button_id}()" style="
         background-color: #3b82f6; color: white; border: none; 
@@ -164,12 +174,48 @@ def render_audio_button(text, button_id):
   components.html(html_code, height=36, width=45)
 
 
-# Quản lý số trang
-max_pages = int(df["page_id"].max()) if not df.empty else 1
+# Khởi tạo chỉ số trang trong Session State
 if "page_idx" not in st.session_state:
   st.session_state.page_idx = 1
 
-# Thanh chuyển bài lật trang
+# ================= SIDEBAR: MỤC LỤC BÀI ĐỌC =================
+with st.sidebar:
+  st.markdown("## 📑 Mục lục bài học")
+  if not df.empty and df["title"].dropna().any():
+    for _, item in df.iterrows():
+      p_id = int(item["page_id"])
+      raw_t = str(item["title"]).strip()
+      title_display = (
+          raw_t if raw_t and raw_t != "nan" else "Bài đọc chưa có tiêu đề"
+      )
+
+      # Nút bấm chuyển trực tiếp tới bài học
+      is_current = p_id == st.session_state.page_idx
+      btn_label = (
+          f"👉 Trang {p_id}: {title_display}"
+          if is_current
+          else f"Trang {p_id}: {title_display}"
+      )
+      if st.button(
+          btn_label,
+          key=f"toc_{p_id}",
+          use_container_width=True,
+          type="primary" if is_current else "secondary",
+      ):
+        st.session_state.page_idx = p_id
+        st.rerun()
+  else:
+    st.caption("Chưa có bài học nào trong mục lục.")
+
+  st.markdown("---")
+  if st.button("➕ Mở trang mới để soạn", use_container_width=True):
+    next_page = int(df["page_id"].max() + 1) if not df.empty else 1
+    st.session_state.page_idx = next_page
+    st.rerun()
+
+# ================= ĐIỀU HƯỚNG TRÊN CÙNG =================
+max_pages = int(df["page_id"].max()) if not df.empty else 1
+
 header_col1, header_col2, header_col3 = st.columns([1, 2, 1])
 with header_col1:
   if st.button("◀ Trang trước") and st.session_state.page_idx > 1:
@@ -199,7 +245,7 @@ tab_learn, tab_input = st.tabs(["📖 Học bài", "✏️ Soạn / Sửa bài t
 
 # ================= TAB 1: GIAO DIỆN HỌC BÀI =================
 with tab_learn:
-  if row is not None and pd.notna(row.get("title")):
+  if row is not None and pd.notna(row.get("title")) and str(row.get("title")).strip() != "":
     st.markdown(
         f"""
         <div class="notebook-sheet">
@@ -264,7 +310,7 @@ with tab_learn:
           unsafe_allow_html=True,
       )
       passage = row.get("passage", "")
-      if passage:
+      if pd.notna(passage) and str(passage).strip():
         st.markdown(
             f'<div class="passage-card">{passage}</div>',
             unsafe_allow_html=True,
@@ -276,15 +322,21 @@ with tab_learn:
         st.info("Chưa có đoạn văn trích dẫn mẫu.")
   else:
     st.info(
-        f"Trang {st.session_state.page_idx} chưa có bài học. Hãy chuyển sang"
-        " tab 'Soạn / Sửa bài trang này' để thêm bài mới!"
+        f"Trang {st.session_state.page_idx} chưa có nội dung. Hãy chuyển sang"
+        " tab 'Soạn / Sửa bài trang này' để nhập bài học!"
     )
 
-# ================= TAB 2: SOẠN BÀI =================
+# ================= TAB 2: SOẠN / SỬA BÀI =================
 with tab_input:
-  default_title = row["title"] if row is not None else ""
-  default_url = row["source_url"] if row is not None else ""
-  default_passage = row["passage"] if row is not None else ""
+  default_title = (
+      row["title"] if row is not None and pd.notna(row["title"]) else ""
+  )
+  default_url = (
+      row["source_url"] if row is not None and pd.notna(row["source_url"]) else ""
+  )
+  default_passage = (
+      row["passage"] if row is not None and pd.notna(row["passage"]) else ""
+  )
 
   existing_vocab = []
   if row is not None:
@@ -309,7 +361,7 @@ with tab_input:
   in_url = st.text_input("Đường link bài báo", value=default_url)
 
   st.markdown("---")
-  st.markdown("### 🗂️ 2. Thẻ từ vựng (Nhập từng ô phân loại)")
+  st.markdown("### 🗂️ 2. Thẻ từ vựng")
 
   indices_to_delete = []
   for i, card in enumerate(st.session_state[state_key]):
